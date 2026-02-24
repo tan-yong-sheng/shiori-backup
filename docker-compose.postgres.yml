@@ -29,7 +29,7 @@ services:
     build: ./backup
     container_name: shiori-backup
     volumes:
-      - "./dev-data:/srv/shiori:ro" # Shiori data (archives, thumbs, ebooks)
+      - "./dev-data:/srv/shiori" # Shiori data (archives, thumbs, ebooks)
       - "./backup/src:/app" # Source code for development
       - "./backup/rclone.conf:/config/rclone/rclone.conf:ro" # rclone config
       - "shiori-backups:/backups" # Local backup storage

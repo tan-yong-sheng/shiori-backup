@@ -4,6 +4,8 @@ backup/rclone.conf
 *.tar.gz
 *.tar.gz.gpg
 
+dev-data/
+
 .coverage
 .coveragerc
 
