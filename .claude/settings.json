@@ -1,0 +1,26 @@
+{
+    "env": {
+        "ANTHROPIC_DEFAULT_HAIKU_MODEL": "minimax-m2.5",
+        "ANTHROPIC_DEFAULT_SONNET_MODEL": "kimi-k2.5",
+        "ANTHROPIC_DEFAULT_OPUS_MODEL": "glm-5",
+        "ANTHROPIC_MODEL": "kimi-k2.5",
+        "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
+        "ENABLE_TOOL_SEARCH": "auto:5",
+        "MAX_THINKING_TOKENS": "10000",
+        "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "70",
+        "MCP_TIMEOUT": "300000",
+        "MCP_TOOL_TIMEOUT": "300000",
+        "BASH_DEFAULT_TIMEOUT_MS": "1800000",
+        "BASH_MAX_TIMEOUT_MS": "7200000"
+    },
+    "model": "haiku",
+    "enabledPlugins": {
+        "context7@claude-plugins-official": true,
+        "everything-claude-code@everything-claude-code": true,
+        "cc-devkits@tan-yong-sheng-cc-devkits": true,
+        "playwright-cli@playwright-cli": true
+    },
+    "alwaysThinkingEnabled": false,
+    "autoUpdatesChannel": "latest",
+    "skipDangerousModePermissionPrompt": true
+}

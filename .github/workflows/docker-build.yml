@@ -1,0 +1,203 @@
+name: Docker Build and Test
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - 'backup/**'
+      - '.github/workflows/docker-build.yml'
+  pull_request:
+    branches: [main, master]
+    paths:
+      - 'backup/**'
+      - '.github/workflows/docker-build.yml'
+  schedule:
+    # Run weekly to ensure builds don't break
+    - cron: '0 0 * * 0'
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}-backup
+
+jobs:
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./backup
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-cov flake8 mypy
+
+      - name: Run linting
+        run: |
+          flake8 src --count --select=E9,F63,F7,F82 --show-source --statistics
+          flake8 src --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+
+      - name: Run type checking
+        run: mypy src --ignore-missing-imports || true
+
+      - name: Run tests with coverage
+        run: |
+          pytest tests/ -v --cov=src --cov-report=xml --cov-report=term
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          files: ./backup/coverage.xml
+          flags: unittests
+          name: codecov-umbrella
+
+  build:
+    name: Build Multi-Arch Docker Image
+    runs-on: ubuntu-latest
+    needs: test
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: linux/amd64,linux/arm64
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=sha
+            latest
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backup
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Test built image (amd64)
+        run: |
+          docker run --rm ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest python --version
+          docker run --rm ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest rclone version
+          docker run --rm ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest gpg --version | head -1
+          docker run --rm ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest sqlite3 --version
+
+  integration-test:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.event_name == 'pull_request'
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: shiori
+          POSTGRES_PASSWORD: shiori
+          POSTGRES_DB: shiori
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build test image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backup
+          load: true
+          tags: shiori-backup:test
+
+      - name: Test SQLite backup
+        run: |
+          mkdir -p /tmp/test-data/archive /tmp/test-data/thumb /tmp/test-data/ebook
+          sqlite3 /tmp/test-data/shiori.db "CREATE TABLE test (id INTEGER);"
+
+          docker run --rm -i \
+            -e SHIORI_DATA_DIR=/srv/shiori \
+            -e BACKUP_ENCRYPTION_KEY=testkey123 \
+            -e BACKUP_RCLONE_DESTINATIONS="" \
+            -e BACKUP_RETENTION_DAYS=0 \
+            -v /tmp/test-data:/srv/shiori:ro \
+            -v /tmp/test-backups:/backups \
+            shiori-backup:test python backup.py --now
+
+          ls -la /tmp/test-backups/
+          test -f /tmp/test-backups/*.gpg && echo "SQLite backup: OK"
+
+      - name: Test PostgreSQL backup
+        run: |
+          docker run --rm -i \
+            --network host \
+            -e SHIORI_DATABASE_URL=postgres://shiori:shiori@localhost:5432/shiori?sslmode=disable \
+            -e BACKUP_ENCRYPTION_KEY=testkey123 \
+            -e BACKUP_RCLONE_DESTINATIONS="" \
+            -e BACKUP_RETENTION_DAYS=0 \
+            -v /tmp/test-backups-pg:/backups \
+            shiori-backup:test python backup.py --now
+
+          ls -la /tmp/test-backups-pg/
+          test -f /tmp/test-backups-pg/*.gpg && echo "PostgreSQL backup: OK"
+
+      - name: Test restore
+        run: |
+          rm -rf /tmp/restore-data && mkdir -p /tmp/restore-data
+          BACKUP_FILE=$(ls /tmp/test-backups/*.gpg | head -1)
+
+          docker run --rm -i \
+            -e SHIORI_DATA_DIR=/srv/shiori \
+            -e BACKUP_ENCRYPTION_KEY=testkey123 \
+            -v /tmp/test-backups:/backups:ro \
+            -v /tmp/restore-data:/srv/shiori \
+            shiori-backup:test python restore.py --restore "$BACKUP_FILE" --force
+
+          ls -la /tmp/restore-data/
+          test -f /tmp/restore-data/shiori.db && echo "Restore: OK"

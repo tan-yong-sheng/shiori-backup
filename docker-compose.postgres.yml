@@ -1,0 +1,54 @@
+services:
+  shiori:
+    image: ghcr.io/go-shiori/shiori:latest
+    container_name: shiori
+    expose:
+      - "8080"
+    volumes:
+      - "./dev-data:/srv/shiori"
+      - ".:/src/shiori"
+      - "go-mod-cache:/go/pkg/mod"
+    restart: unless-stopped
+    links:
+      - "postgres"
+    environment:
+      SHIORI_DIR: /srv/shiori
+      SHIORI_DATABASE_URL: ${SHIORI_DATABASE_URL:-postgres://shiori:shiori@postgres/shiori?sslmode=disable}
+
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_PASSWORD: shiori
+      POSTGRES_USER: shiori
+    volumes:
+      - pgdata_postgres15:/var/lib/postgresql/data
+    expose:
+      - "5432"
+
+  shioiri-backup:
+    build: ./backup
+    container_name: shiori-backup
+    volumes:
+      - "./dev-data:/srv/shiori:ro" # Shiori data (archives, thumbs, ebooks)
+      - "./backup/src:/app" # Source code for development
+      - "./backup/rclone.conf:/config/rclone/rclone.conf:ro" # rclone config
+      - "shiori-backups:/backups" # Local backup storage
+    environment:
+      SHIORI_DATABASE_URL: ${SHIORI_DATABASE_URL:-postgres://shiori:shiori@postgres/shiori?sslmode=disable}
+      SHIORI_DATA_DIR: ${SHIORI_DATA_DIR:-/srv/shiori}
+      BACKUP_SCHEDULE: ${BACKUP_SCHEDULE}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-7}
+      BACKUP_RUN_ON_START: ${BACKUP_RUN_ON_START:-false}
+      BACKUP_DELETE_LOCAL_AFTER_UPLOAD: ${BACKUP_DELETE_LOCAL_AFTER_UPLOAD:-false}
+      BACKUP_ENCRYPTION_KEY: ${BACKUP_ENCRYPTION_KEY:-}
+      BACKUP_RCLONE_DESTINATIONS: ${BACKUP_RCLONE_DESTINATIONS}
+      BACKUP_WEBHOOK_URL: ${BACKUP_WEBHOOK_URL:-}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    depends_on:
+      - postgres
+    restart: unless-stopped
+
+volumes:
+  go-mod-cache:
+  pgdata_postgres15:
+  shiori-backups:

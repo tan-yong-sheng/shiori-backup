@@ -1,0 +1,40 @@
+# ============================================
+# rclone Configuration Example
+# Copy this file to rclone.conf and fill in your credentials
+# ============================================
+
+# Cloudflare R2 (S3-compatible) - Recommended
+[r2]
+type = s3
+provider = Cloudflare
+access_key_id = YOUR_ACCESS_KEY
+secret_access_key = YOUR_SECRET_KEY
+endpoint = https://YOUR_ACCOUNT_ID.r2.cloudflarestorage.com
+acl = private
+
+# AWS S3
+[s3]
+type = s3
+provider = AWS
+access_key_id = YOUR_ACCESS_KEY
+secret_access_key = YOUR_SECRET_KEY
+region = us-east-1
+acl = private
+
+# Backblaze B2
+[b2]
+type = b2
+account = YOUR_ACCOUNT_ID
+key = YOUR_APPLICATION_KEY
+
+# Google Drive
+[gdrive]
+type = drive
+client_id = YOUR_CLIENT_ID
+client_secret = YOUR_CLIENT_SECRET
+token = YOUR_TOKEN
+
+# Dropbox
+[dropbox]
+type = dropbox
+token = YOUR_TOKEN

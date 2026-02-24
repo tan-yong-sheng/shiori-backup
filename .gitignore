@@ -1,0 +1,11 @@
+.env.local
+.env
+backup/rclone.conf
+*.tar.gz
+*.tar.gz.gpg
+
+.coverage
+.coveragerc
+
+__pycache__
+.pytest_cache
