@@ -6,11 +6,15 @@ on:
     paths:
       - 'backup/**'
       - '.github/workflows/docker-build.yml'
+      - 'docker-compose*.yml'
   pull_request:
     branches: [main, master]
     paths:
       - 'backup/**'
       - '.github/workflows/docker-build.yml'
+      - 'docker-compose*.yml'
+  workflow_dispatch:
+    # Allow manual trigger
   schedule:
     # Run weekly to ensure builds don't break
     - cron: '0 0 * * 0'
