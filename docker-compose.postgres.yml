@@ -13,7 +13,7 @@ services:
       - "postgres"
     environment:
       SHIORI_DIR: /srv/shiori
-      SHIORI_DATABASE_URL: ${SHIORI_DATABASE_URL:-postgres://shiori:shiori@postgres/shiori?sslmode=disable}
+      SHIORI_DATABASE_URL: ${SHIORI_DATABASE_URL:-postgres://shiori:shiori@postgres:5432/shiori?sslmode=disable}
 
   postgres:
     image: postgres:15
@@ -25,7 +25,7 @@ services:
     expose:
       - "5432"
 
-  shioiri-backup:
+  backup:
     build: ./backup
     container_name: shiori-backup
     volumes:
@@ -44,6 +44,8 @@ services:
       BACKUP_RCLONE_DESTINATIONS: ${BACKUP_RCLONE_DESTINATIONS}
       BACKUP_WEBHOOK_URL: ${BACKUP_WEBHOOK_URL:-}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    env_file:
+      - .env
     depends_on:
       - postgres
     restart: unless-stopped

@@ -3,7 +3,7 @@
 import os
 import sys
 import tempfile
-from datetime import datetime
+from datetime import datetime, timedelta
 from unittest.mock import patch, MagicMock, PropertyMock, ANY
 
 import pytest
@@ -52,8 +52,8 @@ class TestCreateBackup:
         """Test backup without encryption."""
         mock_env(
             BACKUP_DIR=temp_dir,
-            SHIORI_DATA_DIR=sample_data_dir
-            # No BACKUP_ENCRYPTION_KEY
+            SHIORI_DATA_DIR=sample_data_dir,
+            BACKUP_ENCRYPTION_KEY=None
         )
 
         with patch('backup.get_database_handler') as mock_get_handler:
@@ -247,25 +247,24 @@ class TestRunScheduler:
         """Test scheduler initialization."""
         mock_env(BACKUP_SCHEDULE='0 2 * * *')
 
-        with patch('croniter.croniter') as mock_croniter:
+        with patch('backup.croniter') as mock_croniter:
             mock_itr = MagicMock()
-            mock_itr.get_next.return_value = datetime(2024, 1, 2, 2, 0, 0)
+            now = datetime.utcnow()
+            mock_itr.get_next.side_effect = [now + timedelta(seconds=1), now + timedelta(seconds=2)]
             mock_croniter.return_value = mock_itr
 
-            with patch('backup.create_backup') as mock_backup:
-                with patch('time.sleep', side_effect=Exception('Stop loop')):
-                    try:
+            with patch('backup.create_backup', side_effect=Exception('Stop loop')):
+                with patch('time.sleep', return_value=None):
+                    with pytest.raises(Exception, match='Stop loop'):
                         run_scheduler()
-                    except Exception:
-                        pass
 
-            mock_croniter.assert_called_once_with('0 2 * * *', ANY)
+            mock_croniter.assert_called_with('0 2 * * *', ANY)
 
     def test_invalid_cron_schedule(self, mock_env):
         """Test handling of invalid cron schedule."""
         mock_env(BACKUP_SCHEDULE='invalid')
 
-        with patch('croniter.croniter', side_effect=Exception('Invalid')):
+        with patch('backup.croniter', side_effect=Exception('Invalid')):
             with patch('backup.logger') as mock_logger:
                 with pytest.raises(SystemExit):
                     run_scheduler()
@@ -303,7 +302,5 @@ class TestMain:
 
         with patch.object(sys, 'argv', ['backup.py']):
             with patch('backup.run_scheduler') as mock_run:
-                with pytest.raises(Exception):  # Will raise from run_scheduler
-                    main()
-
+                main()
                 mock_run.assert_called_once()

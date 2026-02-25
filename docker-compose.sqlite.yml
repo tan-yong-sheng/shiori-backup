@@ -2,8 +2,8 @@ services:
   shiori:
     image: ghcr.io/go-shiori/shiori:latest
     container_name: shiori
-    expose:
-      - "8080"
+    ports:
+      - "8080:8080"
     volumes:
       - "./dev-data:/srv/shiori"
       - ".:/src/shiori"
@@ -30,8 +30,10 @@ services:
       BACKUP_DELETE_LOCAL_AFTER_UPLOAD: ${BACKUP_DELETE_LOCAL_AFTER_UPLOAD:-false}
       BACKUP_ENCRYPTION_KEY: ${BACKUP_ENCRYPTION_KEY}
       BACKUP_RCLONE_DESTINATIONS: ${BACKUP_RCLONE_DESTINATIONS}
-      BACKUP_WEBHOOK_URL: ${BACKUP_WEBHOOK_URL}
+      BACKUP_WEBHOOK_URL: ${BACKUP_WEBHOOK_URL:-}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    env_file:
+      - .env
     depends_on:
       - shiori
     restart: unless-stopped

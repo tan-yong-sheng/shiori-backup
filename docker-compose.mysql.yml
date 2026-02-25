@@ -13,7 +13,7 @@ services:
       - "mysql"
     environment:
       SHIORI_DIR: /srv/shiori
-      SHIORI_DATABASE_URL: mysql://shiori:shiori@tcp(mysql:3306)/shiori?charset=utf8mb4&parseTime=True&loc=Local
+      SHIORI_DATABASE_URL: mysql://shiori:shiori@tcp(mysql)/shiori?charset=utf8mb4&parseTime=True&loc=Local&tls=false
 
   mysql:
     image: mysql:8.0.40
@@ -26,14 +26,14 @@ services:
       - "3307:3306"
 
   backup:
-    image: ghcr.io/tan-yong-sheng/shiori-backup:latest
+    build: ./backup
     container_name: shiori-backup
     volumes:
       - "./dev-data:/srv/shiori"
       - "shiori-backups:/backups"
       - "./backup/rclone.conf:/config/rclone/rclone.conf:ro"
     environment:
-      SHIORI_DATABASE_URL: mysql://shiori:shiori@tcp(mysql:3306)/shiori?charset=utf8mb4&parseTime=True&loc=Local
+      SHIORI_DATABASE_URL: mysql://shiori:shiori@tcp(mysql)/shiori?charset=utf8mb4&parseTime=True&loc=Local&tls=false
       SHIORI_DATA_DIR: /srv/shiori
       BACKUP_SCHEDULE: ${BACKUP_SCHEDULE:-0 2 * * *}
       BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-7}
@@ -45,6 +45,8 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
     depends_on:
       - mysql
+    env_file:
+      - .env
     restart: unless-stopped
 
 volumes:

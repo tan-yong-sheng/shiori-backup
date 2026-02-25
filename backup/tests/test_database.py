@@ -164,8 +164,9 @@ class TestPostgreSQLHandler:
         handler.backup('/tmp/backup.dump')
 
         call_args = mock_subprocess_run.call_args[0][0]
-        assert '--sslmode' in call_args
-        assert 'require' in call_args
+        # Now uses PGSSLMODE env var instead of --sslmode
+        result = mock_subprocess_run.call_args[1]['env'].get('PGSSLMODE')
+        assert result == 'require'
 
     def test_backup_failure(self, mock_subprocess_run):
         """Test PostgreSQL backup failure."""

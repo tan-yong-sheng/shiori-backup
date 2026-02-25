@@ -28,25 +28,44 @@ class TestSetupLogging:
         mock_env()  # Clear environment
         if 'LOG_LEVEL' in os.environ:
             del os.environ['LOG_LEVEL']
-        logger = setup_logging()
-        assert logger.level == logging.INFO
+
+        with patch('logging.basicConfig') as mock_basic_config:
+            logger = setup_logging()
+            # Verify basicConfig was called with INFO level
+            assert mock_basic_config.called
+            args = mock_basic_config.call_args
+            assert args[1]['level'] == logging.INFO
 
     def test_custom_log_level_from_env(self, mock_env):
         """Test that log level can be set from environment."""
         mock_env(LOG_LEVEL='DEBUG')
-        logger = setup_logging()
-        assert logger.level == logging.DEBUG
+
+        with patch('logging.basicConfig') as mock_basic_config:
+            logger = setup_logging()
+            # Verify basicConfig was called with DEBUG level
+            assert mock_basic_config.called
+            args = mock_basic_config.call_args
+            assert args[1]['level'] == logging.DEBUG
 
     def test_explicit_log_level(self, mock_env):
         """Test that explicit log level overrides environment."""
         mock_env(LOG_LEVEL='ERROR')
-        logger = setup_logging('WARNING')
-        assert logger.level == logging.WARNING
+
+        with patch('logging.basicConfig') as mock_basic_config:
+            logger = setup_logging('WARNING')
+            # Verify basicConfig was called with WARNING level (explicit > env)
+            assert mock_basic_config.called
+            args = mock_basic_config.call_args
+            assert args[1]['level'] == logging.WARNING
 
     def test_invalid_log_level_defaults_to_info(self):
         """Test that invalid log level defaults to INFO."""
-        logger = setup_logging('INVALID_LEVEL')
-        assert logger.level == logging.INFO
+        with patch('logging.basicConfig') as mock_basic_config:
+            logger = setup_logging('INVALID_LEVEL')
+            # Verify basicConfig was called with INFO (fallback)
+            assert mock_basic_config.called
+            args = mock_basic_config.call_args
+            assert args[1]['level'] == logging.INFO
 
     def test_logger_has_correct_name(self):
         """Test that logger has the correct name."""
@@ -60,15 +79,17 @@ class TestLoadConfig:
     def test_loads_from_app_env_if_exists(self):
         """Test loading from /app/.env if it exists."""
         with patch('pathlib.Path.exists', return_value=True):
-            with patch('dotenv.load_dotenv') as mock_load:
+            with patch('utils.load_dotenv') as mock_load:
                 load_config()
-                assert mock_load.call_count == 2  # /app/.env and current dir
+                # Both paths exist so load_dotenv should be called twice
+                assert mock_load.call_count == 2
 
     def test_loads_from_current_dir_if_app_env_missing(self):
         """Test loading from current dir if /app/.env missing."""
         with patch('pathlib.Path.exists', return_value=False):
-            with patch('dotenv.load_dotenv') as mock_load:
+            with patch('utils.load_dotenv') as mock_load:
                 load_config()
+                # Only current dir .env should be loaded
                 mock_load.assert_called_once()
 
 
@@ -151,16 +172,18 @@ class TestGenerateBackupFilename:
         """Test that filename has correct format."""
         filename = generate_backup_filename()
         assert filename.startswith('shiori-backup-')
-        assert len(filename) == len('shiori-backup-') + 15  # YYYYMMDD_HHMMSS
+        # Format: shiori-backup-YYYYMMDD_HHMMXX-{db_type}
+        assert len(filename) == len('shiori-backup-') + 15 + 1 + 6  # prefix + timestamp + dash + db_type
 
     def test_filename_contains_timestamp(self):
         """Test that filename contains timestamp."""
-        before = datetime.utcnow()
+        before = datetime.utcnow().replace(microsecond=0)
         filename = generate_backup_filename()
-        after = datetime.utcnow()
+        after = datetime.utcnow().replace(microsecond=0)
 
         # Extract timestamp from filename
-        timestamp_str = filename.replace('shiori-backup-', '')
+        # Format: shiori-backup-YYYYMMDD_HHMMXX-{db_type}
+        timestamp_str = filename[len('shiori-backup-'):len('shiori-backup-') + 15]
         timestamp = datetime.strptime(timestamp_str, '%Y%m%d_%H%M%S')
 
         assert before <= timestamp <= after
@@ -250,12 +273,12 @@ class TestParseDatabaseUrl:
         assert result['database'] == 'shiori'
 
     def test_url_without_port(self):
-        """Test parsing URL without explicit port."""
+        """Test parsing URL without explicit port (defaults to 5432)."""
         url = 'postgres://user:pass@localhost/shiori'
         result = parse_database_url(url)
 
         assert result['host'] == 'localhost'
-        assert result['port'] is None
+        assert result['port'] == 5432
 
     def test_url_with_multiple_options(self):
         """Test parsing URL with multiple query options."""

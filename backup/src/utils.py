@@ -137,11 +137,23 @@ def parse_database_url(url: str) -> dict:
     else:
         host_port = rest
 
+    # MySQL URL may use tcp(host[:port]) form
+    if result['type'] == 'mysql' and host_port.startswith('tcp(') and host_port.endswith(')'):
+        host_port = host_port[4:-1]
+
     if ':' in host_port:
         result['host'], port_str = host_port.rsplit(':', 1)
-        result['port'] = int(port_str)
+        try:
+            result['port'] = int(port_str)
+        except ValueError:
+            result['port'] = None
     else:
         result['host'] = host_port
+
+    if result['type'] == 'mysql' and result['port'] is None:
+        result['port'] = 3306
+    elif result['type'] == 'postgresql' and result['port'] is None:
+        result['port'] = 5432
 
     return result
 

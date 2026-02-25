@@ -46,6 +46,7 @@ def create_backup() -> bool:
     """
     start_time = time.time()
     temp_dir = None
+    backup_id = 'unknown'
 
     try:
         # Get configuration

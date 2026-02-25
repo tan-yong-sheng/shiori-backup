@@ -35,15 +35,27 @@ class TestNotificationManagerInit:
         assert nm.smtp_password == 'secret'
         assert nm.smtp_to == 'admin@example.com'
 
-    def test_init_defaults(self, mock_env):
+    def test_init_defaults(self):
         """Test default values when env vars not set."""
-        mock_env()
+        # Temporarily unset env vars
+        backup_webhook = os.environ.pop('BACKUP_WEBHOOK_URL', None)
+        smtp_host = os.environ.pop('SMTP_HOST', None)
+        smtp_port = os.environ.pop('SMTP_PORT', None)
 
-        nm = NotificationManager()
+        try:
+            nm = NotificationManager()
 
-        assert nm.webhook_url is None
-        assert nm.smtp_host is None
-        assert nm.smtp_port == 587  # Default port
+            assert nm.webhook_url is None
+            assert nm.smtp_host is None
+            assert nm.smtp_port == 587  # Default port
+        finally:
+            # Restore env vars
+            if backup_webhook is not None:
+                os.environ['BACKUP_WEBHOOK_URL'] = backup_webhook
+            if smtp_host is not None:
+                os.environ['SMTP_HOST'] = smtp_host
+            if smtp_port is not None:
+                os.environ['SMTP_PORT'] = smtp_port
 
 
 class TestSendWebhook:
@@ -159,6 +171,7 @@ class TestNotifyBackupSuccess:
     def test_notify_success_webhook_only(self, mock_env, mock_requests):
         """Test success notification via webhook only."""
         mock_env(BACKUP_WEBHOOK_URL='https://hooks.example.com/backup')
+        mock_env(SMTP_HOST=None)
 
         nm = NotificationManager()
 
@@ -209,18 +222,30 @@ class TestNotifyBackupSuccess:
         mock_requests.assert_called_once()
         mock_smtp.send_message.assert_called_once()
 
-    def test_notify_success_no_config(self, mock_env):
+    def test_notify_success_no_config(self):
         """Test success notification with no configuration."""
-        mock_env()
+        # Temporarily unset env vars
+        backup_webhook = os.environ.pop('BACKUP_WEBHOOK_URL', None)
+        smtp_host = os.environ.pop('SMTP_HOST', None)
+        smtp_port = os.environ.pop('SMTP_PORT', None)
 
-        nm = NotificationManager()
+        try:
+            nm = NotificationManager()
 
-        with patch.object(nm, '_send_webhook') as mock_webhook:
-            with patch.object(nm, '_send_email') as mock_email:
-                nm.notify_backup_success('backup-123', '/path/backup.tar.gz', 1024, 10.5)
+            with patch.object(nm, '_send_webhook') as mock_webhook:
+                with patch.object(nm, '_send_email') as mock_email:
+                    nm.notify_backup_success('backup-123', '/path/backup.tar.gz', 1024, 10.5)
 
-                mock_webhook.assert_not_called()
-                mock_email.assert_not_called()
+                    mock_webhook.assert_not_called()
+                    mock_email.assert_not_called()
+        finally:
+            # Restore env vars
+            if backup_webhook is not None:
+                os.environ['BACKUP_WEBHOOK_URL'] = backup_webhook
+            if smtp_host is not None:
+                os.environ['SMTP_HOST'] = smtp_host
+            if smtp_port is not None:
+                os.environ['SMTP_PORT'] = smtp_port
 
 
 class TestNotifyBackupFailure:

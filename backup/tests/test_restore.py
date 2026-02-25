@@ -135,6 +135,8 @@ class TestRestoreBackup:
         # Create a mock backup archive
         archive_path = temp_file(content=b'fake archive', suffix='.tar.gz')
 
+        real_exists = os.path.exists
+
         with patch('restore.download_backup', return_value=archive_path):
             with patch('restore.is_encrypted', return_value=False):
                 with patch('restore.extract_archive', return_value=True):
@@ -148,8 +150,10 @@ class TestRestoreBackup:
                                 mock_notifier = MagicMock()
                                 mock_notify.return_value = mock_notifier
 
-                                with patch('restore.shutil.copytree'):
-                                    result = restore_backup(archive_path, force=True)
+                                with patch('restore.os.path.exists') as mock_exists:
+                                    mock_exists.side_effect = lambda p: p.endswith('database_backup') or real_exists(p)
+                                    with patch('restore.shutil.copytree'):
+                                        result = restore_backup(archive_path, force=True)
 
         assert result is True
         mock_handler.restore.assert_called_once()
@@ -170,6 +174,8 @@ class TestRestoreBackup:
 
         archive_path = temp_file(content=b'fake archive', suffix='.tar.gz')
 
+        real_exists = os.path.exists
+
         with patch('restore.download_backup', return_value=archive_path):
             with patch('restore.is_encrypted', return_value=False):
                 with patch('restore.extract_archive', return_value=True):
@@ -183,10 +189,12 @@ class TestRestoreBackup:
                                 mock_notifier = MagicMock()
                                 mock_notify.return_value = mock_notifier
 
-                                with patch('restore.shutil.copytree'):
-                                    # force=True should not call input
-                                    with patch('builtins.input') as mock_input:
-                                        result = restore_backup(archive_path, force=True)
+                                with patch('restore.os.path.exists') as mock_exists:
+                                    mock_exists.side_effect = lambda p: p.endswith('database_backup') or real_exists(p)
+                                    with patch('restore.shutil.copytree'):
+                                        # force=True should not call input
+                                        with patch('builtins.input') as mock_input:
+                                            result = restore_backup(archive_path, force=True)
 
         assert result is True
         mock_input.assert_not_called()
@@ -196,6 +204,8 @@ class TestRestoreBackup:
         mock_env(SHIORI_DATA_DIR=sample_data_dir)
 
         archive_path = temp_file(content=b'encrypted archive', suffix='.tar.gz.gpg')
+
+        real_exists = os.path.exists
 
         with patch('restore.download_backup', return_value=archive_path):
             with patch('restore.is_encrypted', return_value=True):
@@ -211,8 +221,10 @@ class TestRestoreBackup:
                                     mock_notifier = MagicMock()
                                     mock_notify.return_value = mock_notifier
 
-                                    with patch('restore.shutil.copytree'):
-                                        result = restore_backup(archive_path, force=True)
+                                    with patch('restore.os.path.exists') as mock_exists:
+                                        mock_exists.side_effect = lambda p: p.endswith('database_backup') or real_exists(p)
+                                        with patch('restore.shutil.copytree'):
+                                            result = restore_backup(archive_path, force=True)
 
         assert result is True
 
@@ -229,10 +241,10 @@ class TestRestoreBackup:
                         mock_notifier = MagicMock()
                         mock_notify.return_value = mock_notifier
 
-                        with pytest.raises(RuntimeError) as exc_info:
-                            restore_backup(archive_path, force=True)
+                        result = restore_backup(archive_path, force=True)
 
-                        assert 'Failed to decrypt' in str(exc_info.value)
+        assert result is False
+        mock_notifier.notify_restore_failure.assert_called_once()
 
     def test_restore_backup_extract_failure(self, mock_env, sample_data_dir, temp_file):
         """Test restore fails when extraction fails."""
@@ -247,10 +259,10 @@ class TestRestoreBackup:
                         mock_notifier = MagicMock()
                         mock_notify.return_value = mock_notifier
 
-                        with pytest.raises(RuntimeError) as exc_info:
-                            restore_backup(archive_path, force=True)
+                        result = restore_backup(archive_path, force=True)
 
-                        assert 'Failed to extract' in str(exc_info.value)
+        assert result is False
+        mock_notifier.notify_restore_failure.assert_called_once()
 
     def test_restore_backup_no_database_backup(self, mock_env, sample_data_dir, temp_file):
         """Test restore fails when database backup not found in archive."""
@@ -262,13 +274,15 @@ class TestRestoreBackup:
             with patch('restore.is_encrypted', return_value=False):
                 with patch('restore.extract_archive', return_value=True):
                     with patch('restore.list_archive_contents', return_value=['some_file.txt']):
-                        with patch('os.path.exists', return_value=False):
+                        with patch('restore.os.path.exists', return_value=False):
                             with patch('restore.get_notification_manager') as mock_notify:
                                 mock_notifier = MagicMock()
                                 mock_notify.return_value = mock_notifier
 
-                                with pytest.raises(FileNotFoundError):
-                                    restore_backup(archive_path, force=True)
+                                result = restore_backup(archive_path, force=True)
+
+        assert result is False
+        mock_notifier.notify_restore_failure.assert_called_once()
 
     def test_restore_backup_database_restore_failure(self, mock_env, sample_data_dir, temp_file):
         """Test restore fails when database restore fails."""
@@ -289,10 +303,11 @@ class TestRestoreBackup:
                                 mock_notifier = MagicMock()
                                 mock_notify.return_value = mock_notifier
 
-                                with pytest.raises(RuntimeError) as exc_info:
-                                    restore_backup(archive_path, force=True)
+                                with patch('restore.os.path.exists', return_value=True):
+                                    result = restore_backup(archive_path, force=True)
 
-                                assert 'Database restore failed' in str(exc_info.value)
+        assert result is False
+        mock_notifier.notify_restore_failure.assert_called_once()
 
     def test_restore_backup_creates_safety_backup(self, mock_env, sample_data_dir, temp_file):
         """Test that restore creates a safety backup."""
@@ -313,11 +328,12 @@ class TestRestoreBackup:
                                 mock_notifier = MagicMock()
                                 mock_notify.return_value = mock_notifier
 
-                                with patch('restore.shutil.copytree') as mock_copy:
-                                    restore_backup(archive_path, force=True)
+                                with patch('restore.os.path.exists', return_value=True):
+                                    with patch('restore.shutil.copytree') as mock_copy:
+                                        restore_backup(archive_path, force=True)
 
-                                    # Should create safety backup
-                                    mock_copy.assert_called()
+                                        # Should create safety backup
+                                        mock_copy.assert_called()
 
 
 class TestMain:
@@ -408,6 +424,6 @@ class TestMain:
 
         with patch.object(sys, 'argv', ['restore.py']):
             with patch('restore.load_config'):
-                with patch('restore.ArgumentParser.print_help') as mock_help:
+                with patch('argparse.ArgumentParser.print_help') as mock_help:
                     main()
                     mock_help.assert_called_once()

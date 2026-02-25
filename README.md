@@ -104,33 +104,67 @@ docker-compose exec backup python backup.py --now
 ### List Backups
 
 ```bash
-# List cloud backups
+# List cloud backups (filtered by current database type)
 docker-compose exec backup python restore.py --list
 
-# List local backups
+# List local backups (filtered by current database type)
 docker-compose exec backup python restore.py --list --source local
+
+# List ALL backups regardless of database type (for reference)
+docker-compose exec backup python restore.py --list --all
 ```
 
 ## Restore from Backup
 
+> **Important**: Backups include the database type in the filename (e.g., `-sqlite`, `-postgres`, `-mysql`).
+> Restore operations are **strictly enforced** to only work within the same database type.
+> You cannot restore a SQLite backup into a PostgreSQL database (and vice versa).
+
 ### Restore Latest Cloud Backup
 
 ```bash
-# For SQLite
+# For SQLite - STOP shiori first, then restore, then start again
+docker-compose -f docker-compose.sqlite.yml down shiori
 docker-compose -f docker-compose.sqlite.yml exec backup python restore.py --restore-latest --force
+docker-compose -f docker-compose.sqlite.yml up -d shiori
 
-# For PostgreSQL
+# For PostgreSQL - only shows/restores PostgreSQL backups
+docker-compose -f docker-compose.postgres.yml down shiori
 docker-compose -f docker-compose.postgres.yml exec backup python restore.py --restore-latest --force
+docker-compose -f docker-compose.postgres.yml up -d shiori
+
+# For MySQL - only shows/restores MySQL backups
+docker-compose -f docker-compose.mysql.yml down shiori
+docker-compose -f docker-compose.mysql.yml exec backup python restore.py --restore-latest --force
+docker-compose -f docker-compose.mysql.yml up -d shiori
 ```
 
 ### Restore Specific Backup
 
 ```bash
-# From cloud
-docker-compose exec backup python restore.py --restore r2:bucket/shiori-backup-20240224_020000.tar.gz.gpg --force
+# For SQLite - STOP shiori first (required due to SQLite WAL mode)
+docker-compose -f docker-compose.sqlite.yml stop shiori
+docker-compose exec backup python restore.py --restore r2:bucket/shiori-backup-20240224_020000-sqlite.tar.gz.gpg --force
+docker-compose -f docker-compose.sqlite.yml start shiori
+
+# For PostgreSQL (no need to stop)
+docker-compose exec backup python restore.py --restore r2:bucket/shiori-backup-20240224_020000-postgres.tar.gz.gpg --force
 
 # From local
-docker-compose exec backup python restore.py --restore /backups/shiori-backup-20240224_020000.tar.gz.gpg --force
+docker-compose exec backup python restore.py --restore /backups/shiori-backup-20240224_020000-postgres.tar.gz.gpg --force
+```
+
+### Backup Naming Convention
+
+Backup filenames include the database type for safety:
+
+```
+shiori-backup-YYYYMMDD_HHMMSS-<dbtype>.tar.gz.gpg
+
+Examples:
+- shiori-backup-20260224_143000-sqlite.tar.gz.gpg
+- shiori-backup-20260224_143000-postgres.tar.gz.gpg
+- shiori-backup-20240224_143000-mysql.tar.gz.gpg
 ```
 
 ## Disaster Recovery
@@ -151,6 +185,12 @@ docker-compose -f docker-compose.sqlite.yml up -d
 # docker-compose -f docker-compose.postgres.yml up -d
 
 # Restore from cloud
+# For SQLite: MUST stop shiori first due to SQLite WAL mode
+docker-compose -f docker-compose.sqlite.yml stop shiori
+docker-compose -f docker-compose.sqlite.yml exec backup python restore.py --restore-latest --force
+docker-compose -f docker-compose.sqlite.yml start shiori
+
+# For PostgreSQL: No need to stop, hot restore works
 docker-compose exec backup python restore.py --restore-latest --force
 ```
 

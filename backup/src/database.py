@@ -1,6 +1,7 @@
 """Database backup handlers for SQLite and PostgreSQL."""
 
 import os
+import shutil
 import subprocess
 import sqlite3
 import logging
@@ -65,9 +66,30 @@ class SQLiteHandler(DatabaseHandler):
     def restore(self, backup_path: str) -> bool:
         """Restore SQLite database from backup."""
         try:
-            # Simply copy the backup file to the database location
-            import shutil
-            shutil.copy2(backup_path, self.db_path)
+            source_path = Path(backup_path)
+            if not source_path.exists() or not source_path.is_file():
+                logger.error(f"SQLite backup file is invalid: {backup_path}")
+                return False
+
+            # Remove SQLite journal/WAL sidecar files from previous state.
+            for ext in ['-wal', '-shm', '-journal']:
+                sidecar_path = Path(f"{self.db_path}{ext}")
+                if sidecar_path.exists():
+                    try:
+                        sidecar_path.unlink()
+                        logger.debug(f"Removed SQLite sidecar file: {sidecar_path}")
+                    except Exception as e:
+                        logger.warning(f"Could not remove sidecar file {sidecar_path}: {e}")
+
+            # Copy to temp then atomically replace destination.
+            temp_path = self.db_path.with_suffix(self.db_path.suffix + '.restore_tmp')
+            if temp_path.exists():
+                temp_path.unlink()
+
+            shutil.copy2(str(source_path), str(temp_path))
+            os.chmod(temp_path, 0o644)
+            os.replace(temp_path, self.db_path)
+
             logger.info(f"SQLite database restored from {backup_path}")
             return True
 
@@ -129,10 +151,10 @@ class PostgreSQLHandler(DatabaseHandler):
                 '--file', output_path
             ]
 
-            # Add SSL mode if specified
+            # Add SSL mode via environment (portable across pg_dump versions)
             ssl_mode = self.parsed.get('options', {}).get('sslmode')
             if ssl_mode:
-                cmd.extend(['--sslmode', ssl_mode])
+                env['PGSSLMODE'] = ssl_mode
 
             result = subprocess.run(
                 cmd,
@@ -172,7 +194,7 @@ class PostgreSQLHandler(DatabaseHandler):
 
             ssl_mode = self.parsed.get('options', {}).get('sslmode')
             if ssl_mode:
-                cmd.extend(['--sslmode', ssl_mode])
+                env['PGSSLMODE'] = ssl_mode
 
             result = subprocess.run(
                 cmd,
@@ -225,6 +247,15 @@ class MySQLHandler(DatabaseHandler):
                 self.parsed.get('database', 'shiori')
             ]
 
+            opts = self.parsed.get('options', {})
+            tls_opt = str(opts.get('tls', '')).lower()
+            ssl_mode = str(opts.get('sslmode', '')).lower()
+            if tls_opt in ['false', '0', 'off'] or ssl_mode in ['disable', 'disabled']:
+                cmd.append('--ssl=0')
+
+            # Avoid PROCESS privilege requirement on newer MySQL/MariaDB clients.
+            cmd.append('--no-tablespaces')
+
             with open(output_path, 'w') as f:
                 result = subprocess.run(
                     cmd,
@@ -255,6 +286,12 @@ class MySQLHandler(DatabaseHandler):
                 '--password=' + self.parsed.get('password', ''),
                 self.parsed.get('database', 'shiori')
             ]
+
+            opts = self.parsed.get('options', {})
+            tls_opt = str(opts.get('tls', '')).lower()
+            ssl_mode = str(opts.get('sslmode', '')).lower()
+            if tls_opt in ['false', '0', 'off'] or ssl_mode in ['disable', 'disabled']:
+                cmd.append('--ssl=0')
 
             with open(backup_path, 'r') as f:
                 result = subprocess.run(

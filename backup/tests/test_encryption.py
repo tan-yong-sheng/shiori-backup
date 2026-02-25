@@ -70,12 +70,18 @@ class TestEncryptFile:
 
     def test_encrypt_file_no_passphrase(self, temp_file, mock_env, mock_subprocess_run):
         """Test encryption fails without passphrase."""
-        mock_env()  # Clear env
-        input_path = temp_file(content=b'secret data')
+        # Temporarily unset encryption key
+        backup_key = os.environ.pop('BACKUP_ENCRYPTION_KEY', None)
 
-        result = encrypt_file(input_path)
+        try:
+            input_path = temp_file(content=b'secret data')
 
-        assert result is False
+            result = encrypt_file(input_path)
+
+            assert result is False
+        finally:
+            if backup_key is not None:
+                os.environ['BACKUP_ENCRYPTION_KEY'] = backup_key
 
     def test_encrypt_file_gpg_failure(self, temp_file, mock_subprocess_run):
         """Test encryption handles GPG failure."""
@@ -150,12 +156,18 @@ class TestDecryptFile:
 
     def test_decrypt_file_no_passphrase(self, temp_file, mock_env, mock_subprocess_run):
         """Test decryption fails without passphrase."""
-        mock_env()
-        input_path = temp_file(content=b'encrypted', suffix='.gpg')
+        # Temporarily unset encryption key
+        backup_key = os.environ.pop('BACKUP_ENCRYPTION_KEY', None)
 
-        result = decrypt_file(input_path)
+        try:
+            input_path = temp_file(content=b'encrypted', suffix='.gpg')
 
-        assert result is False
+            result = decrypt_file(input_path)
+
+            assert result is False
+        finally:
+            if backup_key is not None:
+                os.environ['BACKUP_ENCRYPTION_KEY'] = backup_key
 
     def test_decrypt_file_gpg_failure(self, temp_file, mock_subprocess_run):
         """Test decryption handles GPG failure."""

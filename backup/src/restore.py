@@ -11,12 +11,13 @@ import sys
 import argparse
 import tempfile
 import shutil
+from datetime import datetime
 from pathlib import Path
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from utils import setup_logging, load_config, get_env, format_bytes
+from utils import setup_logging, load_config, get_env, format_bytes, detect_database_type
 from database import get_database_handler
 from archive import extract_archive, list_archive_contents
 from encryption import decrypt_file, is_encrypted
@@ -26,16 +27,56 @@ from notifications import get_notification_manager
 logger = setup_logging()
 
 
-def list_available_backups(source: str = 'cloud') -> list:
+def extract_db_type_from_filename(filename: str) -> str:
+    """
+    Extract database type from backup filename.
+
+    Supports formats:
+    - Old: shiori-backup-YYYYMMDD_HHMMSS.tar.gz.gpg -> returns 'unknown'
+    - New: shiori-backup-YYYYMMDD_HHMMSS-sqlite.tar.gz.gpg -> returns 'sqlite'
+    """
+    # Remove extensions
+    base = filename
+    for ext in ['.tar.gz.gpg', '.tar.gz']:
+        if base.endswith(ext):
+            base = base[:-len(ext)]
+            break
+
+    # Split and look for database type (last part after timestamp)
+    parts = base.split('-')
+    if len(parts) >= 4:
+        # New format: shiori-backup-YYYYMMDD_HHMMSS-<dbtype>
+        potential_type = parts[-1]
+        if potential_type in ['sqlite', 'postgres', 'mysql']:
+            return potential_type
+
+    # Check for old format without type or unknown type
+    return 'unknown'
+
+
+def list_available_backups(source: str = 'cloud', db_type: str = None, include_all: bool = False) -> list:
     """
     List available backups from specified source.
 
     Args:
         source: 'cloud' or 'local'
+        db_type: Filter by database type (sqlite/postgres/mysql). If None, uses current config.
+        include_all: If True, include all backups regardless of type
 
     Returns:
         List of backup information dictionaries
     """
+    # Determine current database type if not specified
+    if db_type is None and not include_all:
+        current_type = detect_database_type()
+        # Map to our expected types
+        db_type_map = {
+            'sqlite': 'sqlite',
+            'postgresql': 'postgres',
+            'mysql': 'mysql'
+        }
+        db_type = db_type_map.get(current_type, 'unknown')
+
     backups = []
 
     if source == 'local':
@@ -45,12 +86,20 @@ def list_available_backups(source: str = 'cloud') -> list:
         if backup_path.exists():
             for file_path in sorted(backup_path.glob('shiori-backup-*'), reverse=True):
                 if file_path.is_file():
-                    backups.append({
+                    backup_info = {
                         'name': file_path.name,
                         'path': str(file_path),
                         'size': file_path.stat().st_size,
                         'mod_time': file_path.stat().st_mtime
-                    })
+                    }
+                    # Filter by database type unless showing all
+                    if include_all or db_type == 'unknown':
+                        backups.append(backup_info)
+                    else:
+                        backup_db_type = extract_db_type_from_filename(file_path.name)
+                        # Include if matches or if backup has unknown type (backward compat)
+                        if backup_db_type == db_type or backup_db_type == 'unknown':
+                            backups.append(backup_info)
 
     elif source == 'cloud':
         storage = RcloneStorage()
@@ -60,7 +109,14 @@ def list_available_backups(source: str = 'cloud') -> list:
             cloud_backups = storage.list_backups(destination)
             for backup in cloud_backups:
                 backup['full_remote'] = f"{destination}/{backup['name']}"
-            backups.extend(cloud_backups)
+                # Filter by database type unless showing all
+                if include_all or db_type == 'unknown':
+                    backups.append(backup)
+                else:
+                    backup_db_type = extract_db_type_from_filename(backup['name'])
+                    # Include if matches or if backup has unknown type (backward compat)
+                    if backup_db_type == db_type or backup_db_type == 'unknown':
+                        backups.append(backup)
 
         # Sort by modification time (newest first)
         backups.sort(key=lambda x: x.get('mod_time', ''), reverse=True)
@@ -226,20 +282,27 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python restore.py --list                    # List cloud backups
+  python restore.py --list                    # List cloud backups (current DB type only)
+  python restore.py --list --all              # List all backups (all DB types)
   python restore.py --list --source local     # List local backups
-  python restore.py --restore-latest          # Restore latest cloud backup
+  python restore.py --restore-latest          # Restore latest cloud backup (same DB type only)
   python restore.py --restore-latest --source local
   python restore.py --restore r2:bucket/shiori-backup-20240115_020000.tar.gz.gpg
+
+Note: Backups are filtered by database type (sqlite/postgres/mysql).
+      Use --all to see backups for all database types (reference only).
+      Restores only work within the same database type.
         """
     )
 
     parser.add_argument('--list', action='store_true',
-                        help='List available backups')
+                        help='List available backups for current database type')
+    parser.add_argument('--all', action='store_true',
+                        help='Show all backups regardless of database type (for reference only)')
     parser.add_argument('--source', choices=['cloud', 'local'], default='cloud',
                         help='Backup source (default: cloud)')
     parser.add_argument('--restore-latest', action='store_true',
-                        help='Restore the most recent backup')
+                        help='Restore the most recent backup (same database type only)')
     parser.add_argument('--restore', metavar='BACKUP',
                         help='Restore specific backup (local path or remote:path)')
     parser.add_argument('--force', action='store_true',
@@ -248,18 +311,48 @@ Examples:
     args = parser.parse_args()
 
     if args.list:
-        backups = list_available_backups(args.source)
+        # Get current database type for display
+        current_db_type = detect_database_type()
+        db_type_map = {
+            'sqlite': 'sqlite',
+            'postgresql': 'postgres',
+            'mysql': 'mysql'
+        }
+        expected_type = db_type_map.get(current_db_type, 'unknown')
+
+        # List backups (filtered or all)
+        backups = list_available_backups(args.source, include_all=args.all)
 
         if not backups:
-            print(f"No backups found in {args.source}")
+            if args.all:
+                print(f"No backups found in {args.source}")
+            else:
+                print(f"No {expected_type} backups found in {args.source}")
+                print(f"Current database type: {current_db_type}")
+                print("Use --all to see all backups (for reference only)")
             return
 
-        print(f"\nAvailable backups ({args.source}):")
+        # Filter display by type
+        filtered_backups = []
+        other_count = 0
+        for backup in backups:
+            backup_db_type = extract_db_type_from_filename(backup['name'])
+            if args.all or backup_db_type == expected_type or backup_db_type == 'unknown':
+                filtered_backups.append(backup)
+            else:
+                other_count += 1
+
+        if args.all:
+            header = f"Available backups ({args.source}) - ALL TYPES"
+        else:
+            header = f"Available backups ({args.source}) - {expected_type.upper()} only"
+
+        print(f"\n{header}:")
         print("-" * 100)
         print(f"{'Name':<50} {'Size':>12} {'Modified':>20}")
         print("-" * 100)
 
-        for backup in backups:
+        for backup in filtered_backups:
             name = backup['name'][:49]
             size = format_bytes(backup.get('size', 0))
             mod_time = backup.get('mod_time', 'unknown')
@@ -269,19 +362,43 @@ Examples:
             print(f"{name:<50} {size:>12} {mod_time:>20}")
 
         print("-" * 100)
-        print(f"Total: {len(backups)} backup(s)\n")
+        print(f"Total: {len(filtered_backups)} backup(s) displayed")
+
+        if not args.all and other_count > 0:
+            print(f"Note: {len([b for b in backups if extract_db_type_from_filename(b['name']) != expected_type])} backup(s) for other database types hidden")
+        print()
 
     elif args.restore_latest:
-        backups = list_available_backups(args.source)
+        # Get current database type
+        current_db_type = detect_database_type()
+        db_type_map = {
+            'sqlite': 'sqlite',
+            'postgresql': 'postgres',
+            'mysql': 'mysql'
+        }
+        expected_type = db_type_map.get(current_db_type, 'unknown')
+
+        backups = list_available_backups(args.source, db_type=expected_type)
 
         if not backups:
-            logger.error(f"No backups found in {args.source}")
+            logger.error(f"No {expected_type} backups found in {args.source}")
+            logger.error(f"Current database type: {current_db_type}")
+            logger.error("Use --all to see all backups (for reference only)")
             sys.exit(1)
 
         latest = backups[0]
         backup_spec = latest.get('full_remote', latest['path'])
+        backup_db_type = extract_db_type_from_filename(latest['name'])
 
-        logger.info(f"Restoring latest backup: {latest['name']}")
+        # Strict type checking for restore
+        if backup_db_type != 'unknown' and backup_db_type != expected_type:
+            logger.error(f"Database type mismatch!")
+            logger.error(f"Current database: {current_db_type} ({expected_type})")
+            logger.error(f"Backup database: {backup_db_type}")
+            logger.error("Cannot restore across database types.")
+            sys.exit(1)
+
+        logger.info(f"Restoring latest {expected_type} backup: {latest['name']}")
         success = restore_backup(backup_spec, args.force)
         sys.exit(0 if success else 1)
 
@@ -294,5 +411,4 @@ Examples:
 
 
 if __name__ == '__main__':
-    from datetime import datetime
     main()

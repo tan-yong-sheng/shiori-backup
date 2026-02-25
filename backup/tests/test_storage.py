@@ -317,7 +317,7 @@ class TestGetDestinations:
 
     def test_get_destinations_not_set(self, mock_env):
         """Test when env var is not set."""
-        mock_env()
+        mock_env(BACKUP_RCLONE_DESTINATIONS=None)
 
         result = get_destinations()
 

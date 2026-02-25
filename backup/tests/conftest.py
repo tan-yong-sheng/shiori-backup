@@ -203,11 +203,49 @@ def mock_requests():
 def mock_smtp():
     """Mock SMTP library for email testing."""
     with patch('smtplib.SMTP') as mock_smtp_class:
-        instance = MagicMock()
-        mock_smtp_class.return_value.__enter__ = MagicMock(return_value=instance)
-        mock_smtp_class.return_value.__exit__ = MagicMock(return_value=False)
-        mock_smtp_class.return_value = instance
-        yield instance
+        mock_smtp = MagicMock()
+        mock_smtp.__enter__ = MagicMock(return_value=mock_smtp)
+        mock_smtp.__exit__ = MagicMock(return_value=False)
+        mock_smtp_class.return_value = mock_smtp
+        yield mock_smtp
+
+
+@pytest.fixture
+def mock_webhook_only():
+    """Create notification manager with only webhook configured."""
+    nm = NotificationManager()
+    nm.webhook_url = 'https://hooks.example.com/backup'
+    nm.smtp_host = None
+    nm.smtp_user = None
+    nm.smtp_password = None
+    nm.smtp_to = None
+    return nm
+
+
+@pytest.fixture
+def mock_email_only():
+    """Create notification manager with only email configured."""
+    nm = NotificationManager()
+    nm.webhook_url = None
+    nm.smtp_host = 'smtp.example.com'
+    nm.smtp_port = 587
+    nm.smtp_user = 'backup@example.com'
+    nm.smtp_password = 'secret'
+    nm.smtp_to = 'admin@example.com'
+    return nm
+
+
+@pytest.fixture
+def mock_both_config():
+    """Create notification manager with both webhook and email configured."""
+    nm = NotificationManager()
+    nm.webhook_url = 'https://hooks.example.com/backup'
+    nm.smtp_host = 'smtp.example.com'
+    nm.smtp_port = 587
+    nm.smtp_user = 'backup@example.com'
+    nm.smtp_password = 'secret'
+    nm.smtp_to = 'admin@example.com'
+    return nm
 
 
 @pytest.fixture
