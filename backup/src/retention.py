@@ -14,8 +14,10 @@ def parse_backup_timestamp(filename: str) -> datetime:
     """
     Extract timestamp from backup filename.
 
-    Expected format: shiori-backup-YYYYMMDD_HHMMSS.tar.gz[.gpg]
-    E.g.: shiori-backup-20260224_155255.tar.gz.gpg
+    Supports both formats:
+    - Old: shiori-backup-YYYYMMDD_HHMMSS.tar.gz[.gpg]
+    - New: shiori-backup-YYYYMMDD_HHMMSS-<dbtype>.tar.gz[.gpg]
+    E.g.: shiori-backup-20260224_155255-postgres.tar.gz.gpg
     """
     try:
         # Remove extensions (.tar.gz.gpg or .tar.gz)
@@ -25,13 +27,16 @@ def parse_backup_timestamp(filename: str) -> datetime:
                 base = base[:-len(ext)]
                 break
 
-        # The base is like: shiori-backup-YYYYMMDD_HHMMSS
-        # Split by '-' and take the last part which contains date_time
+        # The base can be:
+        # - shiori-backup-YYYYMMDD_HHMMSS (old format)
+        # - shiori-backup-YYYYMMDD_HHMMSS-<dbtype> (new format)
         parts = base.split('-')
-        if len(parts) >= 3:
-            timestamp_str = parts[-1]  # This is YYYYMMDD_HHMMSS
-            return datetime.strptime(timestamp_str, '%Y%m%d_%H%M%S')
-    except (ValueError, IndexError):
+
+        # Find the timestamp part (contains underscore)
+        for part in parts:
+            if '_' in part and len(part) == 15:  # YYYYMMDD_HHMMSS = 15 chars
+                return datetime.strptime(part, '%Y%m%d_%H%M%S')
+    except (ValueError, IndexError, TypeError):
         pass
 
     # Fallback to file modification time

@@ -52,10 +52,31 @@ def calculate_sha256(file_path: str) -> str:
     return sha256_hash.hexdigest()
 
 
-def generate_backup_filename() -> str:
-    """Generate a timestamped backup filename."""
+def detect_database_type() -> str:
+    """Auto-detect database type from environment variables."""
+    database_url = os.getenv('SHIORI_DATABASE_URL')
+    data_dir = os.getenv('SHIORI_DATA_DIR', '/srv/shiori')
+
+    if database_url:
+        if database_url.startswith(('postgres://', 'postgresql://')):
+            return 'postgres'
+        elif database_url.startswith('mysql://'):
+            return 'mysql'
+
+    # Check for SQLite database file
+    if os.path.exists(os.path.join(data_dir, 'shiori.db')):
+        return 'sqlite'
+
+    # Default to sqlite if we can't determine
+    return 'sqlite'
+
+
+def generate_backup_filename(db_type: str = None) -> str:
+    """Generate a timestamped backup filename with database type."""
     timestamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
-    return f"shiori-backup-{timestamp}"
+    if db_type is None:
+        db_type = detect_database_type()
+    return f"shiori-backup-{timestamp}-{db_type}"
 
 
 def format_bytes(size_bytes: int) -> str:

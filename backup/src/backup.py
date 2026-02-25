@@ -45,12 +45,9 @@ def create_backup() -> bool:
         True if successful, False otherwise
     """
     start_time = time.time()
-    backup_id = generate_backup_filename()
     temp_dir = None
 
     try:
-        logger.info(f"Starting backup: {backup_id}")
-
         # Get configuration
         backup_dir = get_env('BACKUP_DIR', '/backups')
         data_dir = get_env('SHIORI_DATA_DIR', '/srv/shiori')
@@ -63,15 +60,20 @@ def create_backup() -> bool:
         temp_dir = tempfile.mkdtemp(prefix='shiori-backup-')
         logger.debug(f"Using temp directory: {temp_dir}")
 
-        # Initialize metadata
-        metadata = BackupMetadata(backup_id, data_dir)
-
-        # Get database handler and perform database backup
+        # Get database handler first to determine database type
         db_handler = get_database_handler()
         if not db_handler:
             raise RuntimeError("Failed to initialize database handler")
 
         db_info = db_handler.get_info()
+        db_type = db_info.get('type', 'unknown')
+
+        # Generate filename with database type
+        backup_id = generate_backup_filename(db_type)
+        logger.info(f"Starting backup: {backup_id}")
+
+        # Initialize metadata
+        metadata = BackupMetadata(backup_id, data_dir)
         metadata.set_database_info(**db_info)
 
         db_backup_path = os.path.join(temp_dir, 'database_backup')

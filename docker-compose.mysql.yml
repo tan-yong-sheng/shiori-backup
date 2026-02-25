@@ -1,0 +1,52 @@
+services:
+  shiori:
+    image: ghcr.io/go-shiori/shiori:latest
+    container_name: shiori
+    ports:
+      - "8080:8080"
+    volumes:
+      - "./dev-data:/srv/shiori"
+      - ".:/src/shiori"
+      - "go-mod-cache:/go/pkg/mod"
+    restart: unless-stopped
+    depends_on:
+      - "mysql"
+    environment:
+      SHIORI_DIR: /srv/shiori
+      SHIORI_DATABASE_URL: mysql://shiori:shiori@tcp(mysql:3306)/shiori?charset=utf8mb4&parseTime=True&loc=Local
+
+  mysql:
+    image: mysql:8.0.40
+    environment:
+      MYSQL_ROOT_PASSWORD: toor
+      MYSQL_DATABASE: shiori
+      MYSQL_USER: shiori
+      MYSQL_PASSWORD: shiori
+    ports:
+      - "3307:3306"
+
+  backup:
+    image: ghcr.io/tan-yong-sheng/shiori-backup:latest
+    container_name: shiori-backup
+    volumes:
+      - "./dev-data:/srv/shiori"
+      - "shiori-backups:/backups"
+      - "./backup/rclone.conf:/config/rclone/rclone.conf:ro"
+    environment:
+      SHIORI_DATABASE_URL: mysql://shiori:shiori@tcp(mysql:3306)/shiori?charset=utf8mb4&parseTime=True&loc=Local
+      SHIORI_DATA_DIR: /srv/shiori
+      BACKUP_SCHEDULE: ${BACKUP_SCHEDULE:-0 2 * * *}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-7}
+      BACKUP_RUN_ON_START: ${BACKUP_RUN_ON_START:-false}
+      BACKUP_DELETE_LOCAL_AFTER_UPLOAD: ${BACKUP_DELETE_LOCAL_AFTER_UPLOAD:-false}
+      BACKUP_ENCRYPTION_KEY: ${BACKUP_ENCRYPTION_KEY}
+      BACKUP_RCLONE_DESTINATIONS: ${BACKUP_RCLONE_DESTINATIONS}
+      BACKUP_WEBHOOK_URL: ${BACKUP_WEBHOOK_URL:-}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    depends_on:
+      - mysql
+    restart: unless-stopped
+
+volumes:
+  go-mod-cache:
+  shiori-backups:
