@@ -15,9 +15,6 @@ on:
       - 'docker-compose*.yml'
   workflow_dispatch:
     # Allow manual trigger
-  schedule:
-    # Run weekly to ensure builds don't break
-    - cron: '0 0 * * 0'
 
 env:
   REGISTRY: ghcr.io
